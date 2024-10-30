@@ -355,50 +355,107 @@ def translate_transcript_batch(video_id, translator, batch_size=50):
 #     finally:
 #         conn.close()
 
+# def save_transcript(channel_name, video_title, video_link, video_duration, translated_srt, full_transcription):
+#     current_time = datetime.now(TIMEZONE)
+#     day_name = current_time.strftime('%A')
+#     date = current_time.strftime('%Y-%m-%d')
+#     time = current_time.strftime('%H:%M:%S')
+
+#     conn = get_db_connection()
+#     cursor = conn.cursor()
+
+#     try:
+#         cursor.execute('''
+#             INSERT INTO "All" (news_channel, day, date, time, transcription, video_title, video_link, video_duration) 
+#             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+#         ''', (channel_name, day_name, date, time, full_transcription, video_title, video_link, video_duration))
+
+#         conn.commit()
+#         print(f"Processed and saved: {video_title}")
+#         logging.info(f"Processed and saved video '{video_title}' from channel '{channel_name}'")
+
+#         transcript_id = cursor.lastrowid
+#         afinn = Afinn()
+
+#         for line in translated_srt:
+#             sentence = line['text']
+#             sentiment_score = afinn.score(sentence)
+#             time_str = f"{int(line['start'] // 60):02d}:{int(line['start'] % 60):02d}"
+
+#             cursor.execute('''
+#                 INSERT INTO sentimental_analysis (transcript_id, sentence, sentiment, time)
+#                 VALUES (?, ?, ?, ?)
+#             ''', (transcript_id, sentence, sentiment_score, time_str))
+
+#         keyword_counts = extract_keywords(full_transcription)
+#         for keyword, intensity in keyword_counts.items():
+#             cursor.execute('''
+#                 INSERT INTO keywords (transcript_id, keyword, intensity)
+#                 VALUES (?, ?, ?)
+#             ''', (transcript_id, keyword, intensity))
+
+#     except sqlite3.IntegrityError as e:
+#         conn.rollback()  # Roll back the current transaction
+#         print(f"Skipped duplicate video: {video_link}")
+#         logging.warning(f"Skipped inserting duplicate video {video_title} with link {video_link}: {e}")
+#         # No need to exit the function; it will continue with the next item.
+
+#     except Exception as e:
+#         conn.rollback()  # Ensure changes are not committed on error
+#         logging.error(f"Error processing video: {e}")
+#         print(f"Error processing video: {e}")
+
+#     finally:
+#         conn.close()
+
+
 def save_transcript(channel_name, video_title, video_link, video_duration, translated_srt, full_transcription):
+    conn = get_db_connection()
+    cursor = conn.cursor()
     current_time = datetime.now(TIMEZONE)
     day_name = current_time.strftime('%A')
     date = current_time.strftime('%Y-%m-%d')
     time = current_time.strftime('%H:%M:%S')
-
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
+    
     try:
+        # Save the full transcription and related data into the 'All' table
         cursor.execute('''
             INSERT INTO "All" (news_channel, day, date, time, transcription, video_title, video_link, video_duration) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ''', (channel_name, day_name, date, time, full_transcription, video_title, video_link, video_duration))
-
+        
         conn.commit()
-        print(f"Processed and saved: {video_title}")
-        logging.info(f"Processed and saved video '{video_title}' from channel '{channel_name}'")
 
+        # Retrieve the last row ID to use as the foreign key reference for sentiment and keywords
         transcript_id = cursor.lastrowid
-        afinn = Afinn()
 
+        # Sentiment analysis and insertion
+        afinn = Afinn()
         for line in translated_srt:
             sentence = line['text']
             sentiment_score = afinn.score(sentence)
             time_str = f"{int(line['start'] // 60):02d}:{int(line['start'] % 60):02d}"
-
             cursor.execute('''
                 INSERT INTO sentimental_analysis (transcript_id, sentence, sentiment, time)
                 VALUES (?, ?, ?, ?)
             ''', (transcript_id, sentence, sentiment_score, time_str))
 
+        # Keyword extraction and insertion
         keyword_counts = extract_keywords(full_transcription)
         for keyword, intensity in keyword_counts.items():
             cursor.execute('''
                 INSERT INTO keywords (transcript_id, keyword, intensity)
                 VALUES (?, ?, ?)
             ''', (transcript_id, keyword, intensity))
+        
+        conn.commit()
+        print(f"Processed and saved: {video_title}")
+        logging.info(f"Processed and saved video '{video_title}' from channel '{channel_name}'")
 
     except sqlite3.IntegrityError as e:
         conn.rollback()  # Roll back the current transaction
         print(f"Skipped duplicate video: {video_link}")
         logging.warning(f"Skipped inserting duplicate video {video_title} with link {video_link}: {e}")
-        # No need to exit the function; it will continue with the next item.
 
     except Exception as e:
         conn.rollback()  # Ensure changes are not committed on error
@@ -407,7 +464,6 @@ def save_transcript(channel_name, video_title, video_link, video_duration, trans
 
     finally:
         conn.close()
-
 
 # Get the last processed time from the database
 def get_last_processed_time(channel_name):
